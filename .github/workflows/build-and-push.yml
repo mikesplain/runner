@@ -43,8 +43,10 @@ jobs:
         id: check
         run: |
           # Check if we have an existing image with this upstream digest as a label
-          if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>/dev/null; then
+          if docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>/dev/null; then
             CURRENT_UPSTREAM=$(docker inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest --format='{{index .Config.Labels "upstream.digest"}}' 2>/dev/null || echo "")
+            echo "Current image upstream digest: '$CURRENT_UPSTREAM'"
+            echo "New upstream digest: '${{ steps.upstream.outputs.digest }}'"
             if [ "$CURRENT_UPSTREAM" = "${{ steps.upstream.outputs.digest }}" ]; then
               echo "needs_build=false" >> $GITHUB_OUTPUT
               echo "Image is up-to-date with upstream digest ${{ steps.upstream.outputs.digest }}"
