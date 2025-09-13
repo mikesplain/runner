@@ -23,6 +23,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check upstream image digest
+        id: upstream
+        run: |
+          UPSTREAM_DIGEST=$(docker manifest inspect ghcr.io/actions/actions-runner:latest | jq -r '.config.digest')
+          echo "digest=$UPSTREAM_DIGEST" >> $GITHUB_OUTPUT
+          echo "Upstream digest: $UPSTREAM_DIGEST"
+
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
@@ -30,8 +37,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check if rebuild needed
+        id: check
+        run: |
+          # Check if we have an existing image with this upstream digest as a label
+          if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>/dev/null; then
+            CURRENT_UPSTREAM=$(docker inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest --format='{{index .Config.Labels "upstream.digest"}}' 2>/dev/null || echo "")
+            if [ "$CURRENT_UPSTREAM" = "${{ steps.upstream.outputs.digest }}" ]; then
+              echo "needs_build=false" >> $GITHUB_OUTPUT
+              echo "Image is up-to-date with upstream digest ${{ steps.upstream.outputs.digest }}"
+            else
+              echo "needs_build=true" >> $GITHUB_OUTPUT
+              echo "Rebuild needed: upstream changed from '$CURRENT_UPSTREAM' to '${{ steps.upstream.outputs.digest }}'"
+            fi
+          else
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+            echo "No existing image found, build needed"
+          fi
+
       - name: Extract metadata
         id: meta
+        if: steps.check.outputs.needs_build == 'true'
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -39,11 +65,18 @@ jobs:
             type=ref,event=branch
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            upstream.digest=${{ steps.upstream.outputs.digest }}
 
       - name: Build and push Docker image
+        if: steps.check.outputs.needs_build == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Skip build notification
+        if: steps.check.outputs.needs_build == 'false'
+        run: echo "Skipping build - image is already up-to-date with upstream"
