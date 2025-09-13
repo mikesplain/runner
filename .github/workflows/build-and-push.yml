@@ -26,8 +26,9 @@ jobs:
       - name: Check upstream image digest
         id: upstream
         run: |
-          # Get the manifest digest (not config digest)
-          UPSTREAM_DIGEST=$(docker buildx imagetools inspect ghcr.io/actions/actions-runner:latest --format '{{.Manifest.Digest}}')
+          # Get the digest using docker pull and inspect
+          docker pull ghcr.io/actions/actions-runner:latest
+          UPSTREAM_DIGEST=$(docker inspect ghcr.io/actions/actions-runner:latest --format='{{index .RepoDigests 0}}' | cut -d'@' -f2)
           echo "digest=$UPSTREAM_DIGEST" >> $GITHUB_OUTPUT
           echo "Upstream digest: $UPSTREAM_DIGEST"
 
